@@ -1,62 +1,71 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
+import logging
 import time
 import datetime
 import sys
 import RPi.GPIO as GPIO
 import threading
 
-# Raspberry Pi GPIO Config
-rPiOutputPin 	= 18
 GPIO.setmode(GPIO.BCM)
 GPIO.setwarnings(False)
-GPIO.setup(rPiOutputPin,GPIO.OUT)
+GPIO.setup(18,GPIO.OUT)
 
-serverIP	= "192.168.1.84" # Set to local IP of Pi
-serverPort 	= 80		# Desired port, in my case HTTP
+serverIP	= "0.0.0.0"
+serverPort 	= 80
 int_Sunrise 	= 8		# Integer hour beween 0-24
-int_Sunset	= 20		# Integer hour beween 0-24
-lightMode 	= "Auto" 	# ("Auto" | "On" | "Off")
-lightStatus	= GPIO.input(rPiOutputPin) # Current status of GPIO pin.
+int_Sunset	= 21		# Integer hour beween 0-24
+lightMode 	= "auto" 	# ("auto" | "on" | "off")
+lightStatus	= GPIO.input(18)
+
+logging.basicConfig(format='%(asctime)s: %(message)s; ', datefmt='%m/%d/%Y %I:%M:%S %p', filename='/home/alarm/lights-webserver.log', level=logging.DEBUG)
+logging.debug('Lights.py started...')
+
 
 def webServer(serverIP, serverPort):
-	# Initiate a webserver in Thread-1 using MyServer simple HTTP handler
 	webServer = HTTPServer((serverIP, serverPort), MyServer)
+	logging.debug('Webserver thread initiated')
 	try:
-        	webServer.serve_forever()
+		webServer.serve_forever()
+
 	except KeyboardInterrupt:
+		logging.debug('Webserver keyboard interrupt.')
 		pass
 
 	webServer.server_close()
+	logging.debug('Webserver and thread stopped.')
 	print("Server stopped.")
 
 def autoLights():
-	global lightMode, lightStatus, rPiOutputPin
-	# Infinite loop Thread-2 checking global lightMode and lightStatus flags
+	global lightMode, lightStatus
 	while(1):
-		if(lightMode == "Auto"):
+		if(lightMode == "auto"):
 			now = datetime.datetime.now()
 			testVar = now
 			if (int_Sunrise < now.hour < int_Sunset):
 				if(lightStatus == False):
 					print("Status: Turning Lights ON")
 					GPIO.output(18,GPIO.HIGH)
-					lightStatus = False
+					logging.debug('Lights on - Auto')
+					lightStatus = True
 			else:
 				if(lightStatus == True):
 					print("Status: Turning Lights OFF")
 					GPIO.output(18,GPIO.LOW)
+					logging.debug('Lights off - Auto')
 					lightStatus = False
 
-		elif(lightMode == "On"):
+		if(lightMode == "on"):
 			if(lightStatus == False):
 				print("Status: Turning Lights ON")
 				GPIO.output(18,GPIO.HIGH)
+				logging.debug('Lights on - Manual')
 				lightStatus = True
 
-		elif(lightMode == "Off"):
-			if(lightStatus == On):
+		if(lightMode == "off"):
+			if(lightStatus == True):
 				print("Status: Turning Lights OFF")
 				GPIO.output(18,GPIO.LOW)
+				logging.debug('Lights off - Manual')
 				lightStatus = False
 
 		time.sleep(5)
@@ -64,39 +73,53 @@ def autoLights():
 
 
 class MyServer(BaseHTTPRequestHandler):
-	# GET request function
 	def do_GET(self):
 		global lightMode, lightStatus
 
 		self.send_response(200)
 		self.send_header("Content-type", "text/html")
 		self.end_headers()
-		self.wfile.write(bytes("<html><head><title>AutoLights</title></head>", "utf-8"))
-		self.wfile.write(bytes("<p>Request: %s</p>" % self.path, "utf-8"))
-		self.wfile.write(bytes("<body>", "utf-8"))
+		self.wfile.write(bytes("<html><head><title>Bedroom Lights</title>", "utf-8"))
+		self.wfile.write(bytes("</head>", "utf-8"))
 
-		# Case strucure for simple request handler. Toggle global LightMode
+
+		self.wfile.write(bytes("<body><h1>Bedroom Lights v2.0</h1>", "utf-8"))
+
 		if(self.path=="/on"):
-			lightMode = "On"
+			lightMode = "on"
+			logging.debug('Light mode set to Manual: On')
 
 		elif(self.path=="/off"):
-			lightMode = "Off"
+			lightMode = "off"
+			logging.debug('Light mode set to Manual: Off')
+
+		elif(self.path=="/toggle"):
+			if(lightStatus):
+				LightMode = "off"
+			else:
+				LightMode = "on"
+			logging.debug('Light mode set to Manual: Toggle')
 
 		elif(self.path=="/auto"):
-			lightMode = "Auto"
+			lightMode = "auto"
+			logging.debug('Light mode set to Auto')
 
 		else:
-			self.wfile.write(bytes("<p>Please go to /on, /off, or /auto to control the lights.</p>","utf-8"))
+			self.wfile.write(bytes("<p>Please go to /on, /off, /toggle, or /auto to control the lights.</p>","utf-8"))
 
 		print("Light Mode: "+lightMode)
-		self.wfile.write(bytes("<p>Current status of lights:  "+str(lightStatus)+"</p>", "utf-8"))
-		self.wfile.write(bytes("<p>Current status of automode:  "+str(lightMode)+"</p>", "utf-8"))
-		self.wfile.write(bytes("</body></html>", "utf-8"))
+		with open('/home/alarm/lights-webserver.log') as f: s = f.read()
+		self.wfile.write(bytes('<div class="controls"><a class="lights-on" href="/on">Lights On</a><a class="lights-off" href="/off">Lights Off</a><a class="lights-auto" href="/auto">Auto Lights</a></div>', "utf-8"))
+		self.wfile.write(bytes('<div class="info">'+"<p>Current time:  "+str(datetime.datetime.now())+"</p><h4>Debug Info</h4><p>"+ str(s.replace(";","<br>")) + "</p></div></body></html>", "utf-8"))
+		self.wfile.write(bytes("<style>.controls {width: 100%;} h4 {text-align: left !important; padding-left: 1rem; margin-bottom: 0} h1 {padding-top: 0.5rem; font-size: 1.5rem; color: #333} .controls>a{display: inline-block; padding: 2rem; background-color: white; margin: 1rem; text-decoration: none; color: black; box-shadow: 0 3px 6px rgba(0,0,0,0.16), 0 3px 6px rgba(0,0,0,0.23); border-radius: 5px;}.controls>a:hover{background-color: #ecf0f2} .lights-"+str(lightMode)+"{background-color: #acf4ff !important;} .info{width:100%} .info>p:last-of-type{margin-top: 0.5rem; height: 150px; overflow-x: hidden; overflow-y: auto; text-align: left; background-color: #cecece; padding: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24)} body{display:flex; align-content:space-between; flex-wrap:wrap; justify-content: space-around; align-items: center; width: 100%; height: 100%; background-color: #dadadd; overflow:hidden;  font-family: Sans-Serif; text-align: center;}body>p:first-of-type{margin-top:16px;}body>p{display: block; border-radius:7px; padding: 1rem; background-color: white; box-shadow: 0 3px 6px rgba(0,0,0,0.16), 0 3px 6px rgba(0,0,0,0.23);}</style>", "utf-8"))
+
 
 if __name__ == "__main__":
 
+	logging.debug('Threading Webserver and Light controls')
 	th_webserver = threading.Thread(target=webServer, args=(serverIP, serverPort,))
 	print("Server started http://%s:%s" % (serverIP, serverPort))
+	logging.debug("Server started http://%s:%s" % (serverIP, serverPort))
 	th_webserver.start()
 
 	th_lights = threading.Thread(target=autoLights)

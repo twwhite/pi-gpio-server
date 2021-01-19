@@ -1,0 +1,13 @@
+[Unit]
+Description=GPIO Lights
+After=multi-user.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=sudo python3 /home/alarm/lights.py
+TimeoutStartSec=0
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
